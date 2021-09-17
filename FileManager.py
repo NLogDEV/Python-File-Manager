@@ -2,15 +2,14 @@ from tkinter import *
 from tkinter import simpledialog
 from tkinter import messagebox
 import shutil         
-import os
-import tkinter
+import os, re, time
 from django.utils.text import get_valid_filename
 import django
-import os, re, time
 from pathlib import Path
+import shutil
 from tkinter import ttk
 
-version = "1.2.2053"
+version = "1.3"
 
     
 root = Tk()
@@ -127,7 +126,7 @@ def newFolder(parent):
 		messagebox.showerror("Error", "Unable to create folder because: " + str(e))
 def renameSelectedFile(parent):
 	try:
-		fileName = curPathText.get() + "\\" + fileListBox.get(fileListBox.curselection())
+		fileName = curPathText.get() + "\\" + fileListBox.focus()
 		in_ = get_valid_filename(simpledialog.askstring("Input", "Please enter the new file name:", parent=parent))
 		if(in_ is None):
 			pass
@@ -143,7 +142,7 @@ def renameSelectedFile(parent):
 		messagebox.showerror("Error", "Unable to rename that file because: " + str(e))
 def deleteSelectedFile():
 	try:
-		fileName = fileListBox.get(fileListBox.curselection())
+		fileName = fileListBox.focus()
 		confirmDelete = messagebox.askokcancel("","Confirm to delete " + fileName + "?")
 		if(confirmDelete):
 			os.remove(curPathText.get() + "\\" + fileName)
@@ -161,7 +160,7 @@ def copy():
 	global clipBoard
 	global transferMode
 	try:
-		clipBoard = curPathText.get() + "\\" + fileListBox.get(fileListBox.curselection())
+		clipBoard = curPathText.get() + "\\" + fileListBox.focus()
 		transferMode = "copy"
 		print("Copied", clipBoard)
 	except TclError:
@@ -171,7 +170,7 @@ def cut():
 	global clipBoard
 	global transferMode
 	try:
-		clipBoard = curPathText.get() + "\\" + fileListBox.get(fileListBox.curselection())
+		clipBoard = curPathText.get() + "\\" + fileListBox.focus()
 		transferMode = "cut"
 		print("Cut", clipBoard)
 	except TclError:
@@ -186,7 +185,7 @@ def check_for_updates():
 		elif version >= checkversion:
 			messagebox.showwarning("Um...", "That is a ... future version?")
 		else:
-			messagebox.showinfo("New Version!", "Your Current version is" + version +".\nNew Version: " + checkversion + ", Please check again in Github.")
+			messagebox.showinfo("New Version!", "Your Current version is" + version +" Please update to new version: " + checkversion)
 	except:
 		messagebox.showerror("Error", "Please connect to the network")
 
@@ -211,12 +210,11 @@ def paste():
 		messagebox.showinfo("Paste", notif + " " + clipBoard + " to " + destination)
 	except AttributeError:
 		pass
-	reloadFiles()
+	reloadFiles(clipBoard)
 
 def about():
-	messagebox.showinfo("About", "📁 File Explorer " + version + "\n Made by LNogDEV.")
+	messagebox.showinfo("About", "📁 File Manager " + version + "\n Made by LNogDEV.")
 
-#load the menu bar
 def menu_bar(root):
 	menuBar = Menu(root)
 	fileMenu = Menu(menuBar, tearoff=0)
@@ -250,28 +248,29 @@ def sysdir():
 		try:
 			ChangeText("System Directory")
 			disk = re.findall(r"[A-Z]+:.*$",os.popen("mountvol /").read(),re.MULTILINE)
-			fileListBox.delete(0, END)
+			fileListBox.delete(*fileListBox.get_children())
 			for f in disk:
-				fileListBox.insert(END, f)
+				fileListBox.insert("","end",iid= f ,values = (f, "" , "Disk", ""))
 		except:
 			messagebox.showerror("Error", "Cannot collect the file list.")
 	else:
 		messagebox.showerror("Error", "Cannot read the folder.")	
 
-#populates file listbox with files in directory
 def reloadFiles(fileToSelect = None):
-	fileListBox.delete(0,END)
+	fileListBox.delete(*fileListBox.get_children())
 	try:
 		flist = os.listdir(curPathText.get())
-		selectionInd = 0
 		added = 0
 		for ind, item in enumerate(flist):
 			if(not (fileToSelect is None)):
 				if(fileToSelect == item):
 					selectionInd = added
-			fileListBox.insert(END, item)
+			if file_size(item) is not None:
+				name, extension = os.path.splitext(item)
+				fileListBox.insert("","end",iid= item ,values = (item, file_size(item), extension + " File" ,time.ctime(os.path.getmtime(item))))
+			else:
+				fileListBox.insert("","end",iid= item ,values = (item, "", "Directory" ,time.ctime(os.path.getmtime(item))))
 			added += 1
-		fileListBox.selection_set(selectionInd)
 		pl = os.getcwd()
 		ChangeText(pl)
 	except (FileNotFoundError, UnboundLocalError):
@@ -280,8 +279,8 @@ def reloadFiles(fileToSelect = None):
 def opensystem(event):
 	global curPathText
 	oldpath = os.getcwd()
+	folderName = fileListBox.focus()
 	try:
-		folderName = fileListBox.get(fileListBox.curselection())
 		newPath = curPathText.get() + "\\" + folderName
 		if ":" in folderName:
 			curPathText.set(folderName)
@@ -305,24 +304,27 @@ def opensystem(event):
 
 def go(event):
 	try:
+		lastdir = os.getcwd()
 		if "System Directory" == pll.get():
 			sysdir()
 		else:
-			lastdir = os.getcwd()
-			curPathText.set(pll.get())
-			os.chdir(pll.get())
-			ChangeText(pll.get())
-			reloadFiles()
+			try:
+				os.startfile(pll.get())
+				ChangeText(lastdir)
+			except OSError:
+				os.chdir(pll.get())
+				ChangeText(pll.get())
+				reloadFiles()
 	except (OSError, TypeError):
-		messagebox.showerror("an error occurred.", "Cannot enter to the specific directory. Please check again.")
+		messagebox.showerror("an error occurred.", "File Manager can't find '" + pll.get() + "'. Check the spelling and try again.")
 		curPathText.set(lastdir)
 		ChangeText(lastdir)
 		os.chdir(lastdir)
 
 def showfileinfo():
-	appName = fileListBox.get(fileListBox.curselection())
+	appName = fileListBox.focus()
 	name, extension = os.path.splitext(appName)
-	folderName = curPathText.get() + "\\" + appName
+	curAppdir = curPathText.get() + "\\" + appName
 	window = Toplevel(root)
 	window.title(appName)
 	window.geometry("300x200")
@@ -335,27 +337,41 @@ def showfileinfo():
 	sizetext.pack(side=TOP)
 	separator = Label (window, text=" ——————————————\n")
 	separator.pack(side=TOP)
-	ctime = Label(window, text="Created: %s" % time.ctime(os.path.getctime(appName)))
-	ctime.pack(side=TOP)
-	mtime = Label(window, text="Modified: %s" % time.ctime(os.path.getmtime(appName)))
-	mtime.pack(side=TOP)
-	atime = Label(window, text="Accessed: %s" % time.ctime(os.path.getatime(appName)))
-	atime.pack(side=TOP)
+
 	try:
 		try:
-			appsize = file_size(folderName)
+			appsize = file_size(curAppdir)
 			sizetext.configure(text="Size: " + appsize)
 			typetext.configure(text="Type of file: '" + extension + "'")
 		except TypeError:
-			size = get_folder_size(folderName)
+			size = get_folder_size(curAppdir)
 			sizetext.configure(text="Size: " + str(size))
 			typetext.configure(text="Type of file: Folder")
 	except (OSError, PermissionError):
-		sizetext.configure(text="Cannot detect the size")
-		typetext.configure(text="")
+		try:
+			total, used, free = shutil.disk_usage(appName)
 
+			sizetext.configure(text="Total: %d GB" % (total // (2**30)) + "\nUsed: %d GB" % (used // (2**30)) + "\nFree: %d GB" % (free // (2**30)))
+			typetext.configure(text="Type: Local Disk")
+		except (OSError, PermissionError, TclError):
+			sizetext.configure(text="Cannot detect the size")
+			typetext.configure(text="")
 
-#main file explorer window
+	try:
+		try:
+			ctime = Label(window, text="Created: %s" % time.ctime(os.path.getctime(appName)))
+			ctime.pack(side=TOP)
+			mtime = Label(window, text="Modified: %s" % time.ctime(os.path.getmtime(appName)))
+			mtime.pack(side=TOP)
+			atime = Label(window, text="Accessed: %s" % time.ctime(os.path.getatime(appName)))
+			atime.pack(side=TOP)
+		except PermissionError:
+			pass
+	except FileNotFoundError:
+		window.destroy()
+		messagebox.showwarning("Warning", "Please select a file to show that file info.")
+
+	
 	
 frame1=Frame(root)
 frame1.pack(side=TOP,fill=X)
@@ -366,30 +382,29 @@ file_mgr.geometry("800x500")
 	
 toolbar=Frame(frame1)
 toolbar.pack(side=TOP,fill=X)
-upbtn = tkinter.Button(frame1, text="↑ Up", command=upward)
+upbtn = Button(frame1, text="↑ Up", command=upward)
 upbtn.pack(side=LEFT,padx=1)
-refreshbtn = tkinter.Button(frame1, text="↻ Refresh", command=reloadFiles)
+refreshbtn = Button(frame1, text="↻ Refresh", command=reloadFiles)
 refreshbtn.pack(side=LEFT,padx=1)
-newfolderbtn = tkinter.Button(frame1, text="New 📁", command=lambda: newFolder(root))
+newfolderbtn = Button(frame1, text="New 📁", command=lambda: newFolder(root))
 newfolderbtn.pack(side=RIGHT, padx=1)
-newfilebtn = tkinter.Button(frame1, text="+File", command=lambda: newFile(root))
+newfilebtn = Button(frame1, text="+File", command=lambda: newFile(root))
 newfilebtn.pack(side=RIGHT, padx=1)
-delfilebtn = tkinter.Button(frame1, text="✖ Delete", command=deleteSelectedFile)
+delfilebtn = Button(frame1, text="✖ Delete", command=deleteSelectedFile)
 delfilebtn.pack(side=RIGHT, padx=1)
-copybtn = tkinter.Button(frame1, text="Copy", command=copy)
+copybtn = Button(frame1, text="Copy", command=copy)
 copybtn.pack(side=RIGHT, padx=1)
-cutbtn = tkinter.Button(frame1, text="✂Cut", command=cut)
+cutbtn = Button(frame1, text="✂Cut", command=cut)
 cutbtn.pack(side=RIGHT, padx=1)
-pastebtn = tkinter.Button(frame1, text="Paste", command=paste)
+pastebtn = Button(frame1, text="Paste", command=paste)
 pastebtn.pack(side=RIGHT, padx=1)
-gobtn = tkinter.Button(frame1, text="↩Go", command=lambda:go(root))
+gobtn = Button(frame1, text="↩Go", command=lambda:go(root))
 gobtn.pack(side=RIGHT, padx=4)
 def ChangeText(text):
 	pll.set(text)
 
-pll = tkinter.StringVar()
-
-path = tkinter.Entry(frame1,  textvariable = pll)
+pll = StringVar()
+path = Entry(frame1,  textvariable = pll)
 path.pack(side=LEFT, fill=BOTH, expand=1)
 
 path.bind("<Return>", go)
@@ -397,13 +412,28 @@ path.bind("<Return>", go)
 m = PanedWindow(file_mgr,orient="horizontal")
 m.pack(fill=BOTH ,expand=1)
 
-fileListBox = Listbox(m, name='fileListBox')
+fileListBox = ttk.Treeview(m, name='fileListBox')
+fileListBox['columns']=('name', 'size', 'type', 'datem')
+fileListBox.column('#0', width=0, stretch=NO)
+fileListBox.column('name',  width=80)
+fileListBox.column('size',  width=80)
+fileListBox.column('datem',  width=80)
+fileListBox.column('type',  width=80)
+
+fileListBox.heading('#0')
+fileListBox.heading('name', text='Name')
+fileListBox.heading('size', text='Size')
+fileListBox.heading('datem', text='Date modified')
+fileListBox.heading('type', text='Type')
+
 fileListBox.bind('<<ListboxSelect>>')
-fileListBox.bind("<Double-Button-1>", opensystem)	
+fileListBox.bind("<Double-Button-1>", opensystem)
+fileListBox.bind('<Control-Key-C>', copy)
+fileListBox.bind('<Control-Key-V>', paste)
 scrollbar = Scrollbar(m)
 scrollbar.pack(side = RIGHT, fill = BOTH)
 
-for values in range(100):
+for values in range(-1):
 	fileListBox.insert(END, values)
 
 fileListBox.config(yscrollcommand = scrollbar.set)
@@ -427,12 +457,11 @@ def do_popup(event):
 
 fileListBox.bind("<Button-3>", do_popup)
 
-reloadFiles() #populate
+reloadFiles()
 
 m.add(fileListBox)
 
 menu_bar(file_mgr)
-
 
 if(__name__ == "__main__"):
 	root.mainloop()
