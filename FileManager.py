@@ -1,20 +1,25 @@
 from tkinter import *
-from tkinter import simpledialog
-from tkinter import messagebox
+from tkinter import simpledialog, messagebox, ttk
 import shutil         
 import os, re, time
-from django.utils.text import get_valid_filename
-import django
+try:
+	import django
+	from django.utils.text import get_valid_filename
+except ImportError:
+	messagebox.showerror("Error", "Please intall django module.")
+	os.system("pip install django")
 from pathlib import Path
 import shutil
-from tkinter import ttk
 
-version = "1.3"
+version = "1.3.0.1"
 
     
 root = Tk()
 
 clipBoard = None
+
+state = False
+
 
 fileListBox = None
 textArea = None
@@ -143,7 +148,7 @@ def renameSelectedFile(parent):
 def deleteSelectedFile():
 	try:
 		fileName = fileListBox.focus()
-		confirmDelete = messagebox.askokcancel("","Confirm to delete " + fileName + "?")
+		confirmDelete = messagebox.askyesno("","Confirm to delete " + fileName + "?")
 		if(confirmDelete):
 			os.remove(curPathText.get() + "\\" + fileName)
 			reloadFiles(0)
@@ -176,7 +181,10 @@ def cut():
 	except TclError:
 		pass
 def check_for_updates():
-	import requests
+	try:
+		import requests
+	except:
+		pass
 	try:
 		response = requests.get("https://api.github.com/repositories/398240683/releases/latest")
 		checkversion = response.json()["tag_name"]
@@ -185,7 +193,7 @@ def check_for_updates():
 		elif version >= checkversion:
 			messagebox.showwarning("Um...", "That is a ... future version?")
 		else:
-			messagebox.showinfo("New Version!", "Your Current version is" + version +" Please update to new version: " + checkversion)
+			messagebox.showinfo("New Version!", "Your Current version is " + version +" Please update to new version: " + checkversion)
 	except:
 		messagebox.showerror("Error", "Please connect to the network")
 
@@ -193,32 +201,37 @@ def paste():
 	global clipBoard
 	global transferMode
 	try:
-		fileName = clipBoard.split("\\")[-1]
-		try:
-			if(transferMode == "copy"):
-				[fileName, fileType] = fileName.split(".")
-				fileName = fileName + "_copy." + fileType
-		except:
+		if pll.get() == "System Directory":
 			pass
-		destination = curPathText.get() + "\\" + fileName
-		if(transferMode == "cut"):
-			shutil.move(clipBoard, destination)
-			notif = "Moving"
-		elif(transferMode == "copy"):
-			shutil.copyfile(clipBoard, destination)
-			notif = "Copying"
-		messagebox.showinfo("Paste", notif + " " + clipBoard + " to " + destination)
-	except AttributeError:
-		pass
-	reloadFiles(clipBoard)
+		else:
+			fileName = clipBoard.split("\\")[-1]
+			try:
+				if(transferMode == "copy"):
+					[fileName, fileType] = fileName.split(".")
+					fileName = fileName + "_copy." + fileType
+			except:
+				pass
+			destination = curPathText.get() + "\\" + fileName
+			if(transferMode == "cut"):
+				shutil.move(clipBoard, destination)
+				notif = "Moving"
+			elif(transferMode == "copy"):
+				shutil.copyfile(clipBoard, destination)
+				notif = "Copying"
+			messagebox.showinfo("Paste", notif + " " + clipBoard + " to " + destination)
+	except (AttributeError, shutil.SameFileError) as e:
+		messagebox.showerror(clipBoard, "Error: " + str(e))
+	reloadFiles(fileToSelect =clipBoard)
 
 def about():
 	messagebox.showinfo("About", "📁 File Manager " + version + "\n Made by LNogDEV.")
 
 def menu_bar(root):
+	global fullscreenlabel
 	menuBar = Menu(root)
 	fileMenu = Menu(menuBar, tearoff=0)
 	navMenu = Menu(menuBar, tearoff=0)
+	viewMenu = Menu(menuBar, tearoff=0)
 	helpMenu = Menu(menuBar, tearoff=0)
 	fileMenu.add_command(label="New file", command=lambda: newFile(root))
 	fileMenu.add_command(label="New folder", command=lambda: newFolder(root))
@@ -234,13 +247,21 @@ def menu_bar(root):
 	navMenu.add_command(label="Open", command=opensystem)
 	navMenu.add_command(label="Up", command=upward)
 
+	viewMenu.add_command(label="Toggle fullscreen", command=toggle_fullscreen)
+
 	helpMenu.add_command(label="Check for updates", command=check_for_updates)
 	helpMenu.add_command(label="About", command=about)
 
 	menuBar.add_cascade(label="File", menu=fileMenu)
 	menuBar.add_cascade(label="Nav", menu=navMenu)
+	menuBar.add_cascade(label="View", menu=viewMenu)
 	menuBar.add_cascade(label="Help", menu=helpMenu)
 	root.config(menu=menuBar)
+
+def toggle_fullscreen(event=None):
+    global state
+    state = not state  # Just toggling the boolean
+    root.attributes("-fullscreen", state)
 
 def sysdir():
 	errdir = curPathText.get()
@@ -249,8 +270,8 @@ def sysdir():
 			ChangeText("System Directory")
 			disk = re.findall(r"[A-Z]+:.*$",os.popen("mountvol /").read(),re.MULTILINE)
 			fileListBox.delete(*fileListBox.get_children())
-			for f in disk:
-				fileListBox.insert("","end",iid= f ,values = (f, "" , "Disk", ""))
+			for d in disk:
+				fileListBox.insert("","end",iid=d ,values = (d, "" , "Local Disk", ""))
 		except:
 			messagebox.showerror("Error", "Cannot collect the file list.")
 	else:
@@ -307,14 +328,14 @@ def go(event):
 		lastdir = os.getcwd()
 		if "System Directory" == pll.get():
 			sysdir()
+		elif "." in pll.get():
+			os.startfile(pll.get)
+			ChangeText(lastdir)
 		else:
-			try:
-				os.startfile(pll.get())
-				ChangeText(lastdir)
-			except OSError:
-				os.chdir(pll.get())
-				ChangeText(pll.get())
-				reloadFiles()
+			curPathText.set(pll.get())
+			os.chdir(pll.get())
+			ChangeText(pll.get())
+			reloadFiles()
 	except (OSError, TypeError):
 		messagebox.showerror("an error occurred.", "File Manager can't find '" + pll.get() + "'. Check the spelling and try again.")
 		curPathText.set(lastdir)
@@ -327,7 +348,7 @@ def showfileinfo():
 	curAppdir = curPathText.get() + "\\" + appName
 	window = Toplevel(root)
 	window.title(appName)
-	window.geometry("300x200")
+	window.geometry("300x250")
 	window.resizable(0,0)
 	apptext = Label(window, text="📁 " + appName + "\n")
 	apptext.pack(side=TOP)
@@ -344,9 +365,12 @@ def showfileinfo():
 			sizetext.configure(text="Size: " + appsize)
 			typetext.configure(text="Type of file: '" + extension + "'")
 		except TypeError:
-			size = get_folder_size(curAppdir)
-			sizetext.configure(text="Size: " + str(size))
-			typetext.configure(text="Type of file: Folder")
+			if curPathText.get() == "System Directory":
+				raise OSError("Getting_Disk_Size")
+			else:
+				size = get_folder_size(curAppdir)
+				sizetext.configure(text="Size: " + str(size))
+				typetext.configure(text="Type of file: Folder")
 	except (OSError, PermissionError):
 		try:
 			total, used, free = shutil.disk_usage(appName)
@@ -371,15 +395,21 @@ def showfileinfo():
 		window.destroy()
 		messagebox.showwarning("Warning", "Please select a file to show that file info.")
 
-	
-	
 frame1=Frame(root)
 frame1.pack(side=TOP,fill=X)
 
 file_mgr = root
 file_mgr.title("File Manager")
 file_mgr.geometry("800x500")
-	
+
+root.bind("<F11>", toggle_fullscreen)
+
+def tksearchengine():
+	try:
+		os.startfile("filesearchengine.pyw")
+	except OSError:
+		pass
+
 toolbar=Frame(frame1)
 toolbar.pack(side=TOP,fill=X)
 upbtn = Button(frame1, text="↑ Up", command=upward)
@@ -398,8 +428,11 @@ cutbtn = Button(frame1, text="✂Cut", command=cut)
 cutbtn.pack(side=RIGHT, padx=1)
 pastebtn = Button(frame1, text="Paste", command=paste)
 pastebtn.pack(side=RIGHT, padx=1)
+searchbtn = Button(frame1, text="🔎", command=tksearchengine)
+searchbtn.pack(side=RIGHT, padx=1)
 gobtn = Button(frame1, text="↩Go", command=lambda:go(root))
 gobtn.pack(side=RIGHT, padx=4)
+
 def ChangeText(text):
 	pll.set(text)
 
@@ -430,6 +463,7 @@ fileListBox.bind('<<ListboxSelect>>')
 fileListBox.bind("<Double-Button-1>", opensystem)
 fileListBox.bind('<Control-Key-C>', copy)
 fileListBox.bind('<Control-Key-V>', paste)
+
 scrollbar = Scrollbar(m)
 scrollbar.pack(side = RIGHT, fill = BOTH)
 
