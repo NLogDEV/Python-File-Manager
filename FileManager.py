@@ -1,277 +1,223 @@
 """
 	File Manager
 	By NlogDev
+	Based on v97's File manager with also can be seen here: https://github.com/v97/python-file-explorer
 """
 
+#Note: Some sympol in here is not supported in your PC.
+#📄 This is file sympol
+#📁  This is folder sympol
+#🖴 This is hard disk driver sympol
 
-from tkinter import *
-from tkinter import simpledialog, messagebox, ttk
-import shutil        
-import os,  time
+from threading import Thread
+from tkinter import* ; from tkinter import simpledialog, messagebox, ttk ; import shutil ; import os, time; import errno
+import function ; import tempfile
 try:
-	import django
-	from django.utils.text import get_valid_filename
-except ImportError:
-	messagebox.showerror("Error", "Please intall django module.")
-	os.system("pip install django")
-from pathlib import Path
-import win32api
-
-version = "1.3.1"
+	import win32api
+except:
+	messagebox.showerror("Error", "There is no module named 'win32api'. Please install it via 'pip install win32api' command'")
+	
+version = "1.4"
 
 root = Tk()
 
-clipBoard = []
-
-state = False
-cutprocess = True
+clipBoard = [] ; tupleselect = () ; curdata = []
+state = False ; transferMode = ''
 
 fileListBox = None
-textArea = None
 
-curPathText = StringVar()
+curPathText = StringVar() ; pll = StringVar() #Adress text
 curPathText.set(os.getcwd())
 
-def get_folder_size(folder):
-	return ByteSize(sum(file.stat().st_size for file in Path(folder).rglob('*')))
+class OSPermissionError(Exception):
+	pass
 
-
-class ByteSize(int):
-
-    _KB = 1024
-    _suffixes = 'B', 'KB', 'MB', 'GB'
-
-    def __new__(cls, *args, **kwargs):
-        return super().__new__(cls, *args, **kwargs)
-
-    def __init__(self, *args, **kwargs):
-        self.bytes = self.B = int(self)
-        self.kilobytes = self.KB = self / self._KB**1
-        self.megabytes = self.MB = self / self._KB**2
-        self.gigabytes = self.GB = self / self._KB**3
-        self.petabytes = self.PB = self / self._KB**4
-        *suffixes, last = self._suffixes
-        suffix = next((
-            suffix
-            for suffix in suffixes
-            if 1 < getattr(self, suffix) < self._KB
-        ), last)
-        self.readable = suffix, getattr(self, suffix)
-
-        super().__init__()
-
-    def __str__(self):
-        return self.__format__('.2f')
-
-    def __repr__(self):
-        return '{}({})'.format(self.__class__.__name__, super().__repr__())
-
-    def __format__(self, format_spec):
-        suffix, val = self.readable
-        return '{val:{fmt}} {suf}'.format(val=val, fmt=format_spec, suf=suffix)
-
-    def __sub__(self, other):
-        return self.__class__(super().__sub__(other))
-
-    def __add__(self, other):
-        return self.__class__(super().__add__(other))
-
-    def __mul__(self, other):
-        return self.__class__(super().__mul__(other))
-
-    def __rsub__(self, other):
-        return self.__class__(super().__sub__(other))
-
-    def __radd__(self, other):
-        return self.__class__(super().__add__(other))
-
-    def __rmul__(self, other):
-        return self.__class__(super().__rmul__(other))   
-
-def convert_bytes(num):
-    for x in ['B', 'KB', 'MB', 'GB']:
-        if num < 1024.0:
-            return "%3.1f %s" % (num, x)
-        num /= 1024.0
-def file_size(file_path):
-    if os.path.isfile(file_path):
-        file_info = os.stat(file_path)
-        return convert_bytes(file_info.st_size)
+class OSFileNotFoundError(Exception):
+	pass
 
 #All control
-#WARN: NO multiple selection.
 def newFile(parent):
 	if curPathText.get() == "System Directory":
 		pass
 	else:
-		name = get_valid_filename(simpledialog.askstring("Input", "Please enter the file name:",
-									parent=parent))
-		if(name is None):
-			pass
-		if(name == "con"):
-			messagebox.showwarning("Error", "The specified device name is invaild.")
-		if(name == "nul"):
-			messagebox.showwarning("Error", "The specified device name is invaild.")
 		try:
-			f = open(name,"w+")
-			f.write("")
-			f.close()
-		except Exception as e:
-			messagebox.showerror(f , "Error: " + str(e))
-		reloadFiles(name)
+			name = function.get_valid_filename(simpledialog.askstring("File Creator", "Please enter the file name:",parent=parent))
+			print(name)
+			if name == "None":
+				return 'break'
+			if(name == ("con", "nul", "aux", "...", "prn")):
+				return 'break'
+			if not os.path.isdir(name):
+				try:
+					f = open(name,"w+")
+					f.write("")
+					f.close()
+				except Exception as e:
+					raise Exception(e)
+				reloadFiles()
+				select(name)
+		except function.SuspiciousFileOperation as e:
+			messagebox.showerror("Error" , "Error: " + str(e))
+			return 'break'
+
 
 def newFolder(parent):
 	if curPathText.get() == "System Directory":
 		pass
 	else:
 		try:
-			name = get_valid_filename(simpledialog.askstring("Input", "Please enter the file name:",
-										parent=parent))
-			if(name is None):
-				pass
+			name = function.get_valid_filename(simpledialog.askstring("File Creator", "Please enter the folder name:",parent=parent))
+			if name == "None":
+				return 'break'
 			if not os.path.exists(name):
 				os.makedirs(name)
-			if(name == "con"):
-				messagebox.showwarning("Error", "The specified device name is invaild.")
-			if(name == "nul"):
-				messagebox.showwarning("Error", "The specified device name is invaild.")
-		except django.core.exceptions.SuspiciousFileOperation as e:
+				reloadFiles()
+				select(name)
+			if(name == ("con", "nul", "aux", "...", "prn")):
+				return 'break'
+		except function.SuspiciousFileOperation as e:
 			messagebox.showerror("Error", "Unable to create folder because: " + str(e))
 
-def renameSelectedFile(parent):
+def renameSelectedFile(event):
 	if curPathText.get() == "System Directory":
 		pass
+	elif fileListBox.focus() == "":
+		return 'break'
 	else:
 		try:
 			fileName = curPathText.get() + "\\" + fileListBox.focus()
-			in_ = get_valid_filename(simpledialog.askstring("Input", "Please enter the new file name: \n *Note: You Can't rename multiple files*", parent=parent))
-			if(in_ is None):
-				pass
+			in_ = function.get_valid_filename(simpledialog.askstring("File Creator", "New name:", parent=root))
+			if in_ == "None":
+				return 'break'
 			if "." in in_:
 				newName = curPathText.get() + "\\" + in_
 				os.rename(fileName, newName)
 				reloadFiles()
-			if(in_ == "con"):
-				pass
-			if(in_ == "nul"):
-				pass
-		except django.core.exceptions.SuspiciousFileOperation as e:
+			if(in_ == ("con", "nul", "aux", "...", "prn")):
+				return 'break'
+		except function.SuspiciousFileOperation as e:
 			messagebox.showerror(fileListBox.focus(), "Error: " + str(e))
 
-def deleteSelectedFile():
+def deleteSelectedFile(event):
+	print(event)
 	if curPathText.get() == "System Directory":
 		pass
 	else:
 		try:
-			ex = 0
-			multipleappname = fileListBox.selection()
-			for count in multipleappname:
-				ex += 1
-				
-			confirmDelete = messagebox.askyesno("","Confirm to delete " + str(ex) + " Files?")
-			if(confirmDelete):
-				for filee in multipleappname:
-					os.remove(curPathText.get() + "\\" + filee)
-					reloadFiles(0)
-		except (TclError, PermissionError) as e:
-			messagebox.showerror("Error to delete '" + fileListBox.selection() + "'", "Error: " + str(e))
+			fc = 0 ; multipleappname = fileListBox.selection()
+			for c in multipleappname:
+				fc += 1
+			if fc == 0:
+				pass
+			else:
+				confirmDelete = messagebox.askyesno("","Confirm to delete " + str(fc) + " File(s)?")
+				if(confirmDelete):
+					for f in multipleappname:
+						try:
+							shutil.rmtree(curPathText.get() + "\\" + f)
+						except:
+							try:
+								os.remove(curPathText.get() + "\\" + f)
+							except Exception as e:
+								if fc == 1:
+									messagebox.showerror("Error", e)
+									return 'break'
+								else:
+									continuedel = messagebox.askyesno("Error","Error to delete '"+f+"'"+"\n\nError: "+str(e)+"\n\n Do you want to skip that file?")
+									if(continuedel):
+										continue
+									else:
+										break
+						reloadFiles() ; print("Deleted " , f)
+		except FileNotFoundError:
+			reloadFiles()
 
 def upward():
-	curPathText.set(('\\').join(curPathText.get().split("\\")[:-1]))
-	os.chdir("..")
+	curPathText.set(('\\').join(curPathText.get().split("\\")[:-1])) ; os.chdir("..")
 	reloadFiles()
 
-#Copy/Cut/Paste function
-#WARN: NO multiple selection.
-def copy():
-	global clipBoard
-	global transferMode
-	clipBoard = [] #Make sure to clear the Clipboard
-	multiplefilename = fileListBox.selection()
+def copy(event):
+	global clipBoard, transferMode, tupleselect
+	clipBoard = [] ; tupleselect = () ; multiplefilename = fileListBox.selection()
 	if curPathText.get() == "System Directory":
 		pass
 	else:
 		try:
 			for fn in multiplefilename:
 				clipBoard.append(curPathText.get() + "\\" + str(fn))
-				print("Added " + curPathText.get() + "\\" + str(fn) + "To clipboard.")
-				print("Copied", fn)
-			transferMode = "copy"
+				print("Added " + curPathText.get() + "\\" + str(fn) + " To clipboard.")
+				print("Copied ", fn)
+			transferMode = "copy" ; tupleselect = multiplefilename
 		except TclError:
 			pass
 
-def cut():
-	global clipBoard
-	global transferMode
+def cut(event):
+	global clipBoard, transferMode, tupleselect
 	multipleappname = fileListBox.selection()
 	if curPathText.get() == "System Directory":
 		pass
 	else:
 		try:
-			#Make sure to clear the clipboard
-			clipBoard = []
-			ex = 0
+			clipBoard = [] ; tupleselect = () ; ex = 0
 			transferMode = "cut"
 			for a in multipleappname:
-				ex += 1
-				clipBoard.append(curPathText.get() + "\\" + str(a))
-				print("Added " + curPathText.get() + "\\" + str(a) + "To clipboard.")
+				ex += 1 ; clipBoard.append(curPathText.get() + "\\" + str(a))
+				print("Added " + curPathText.get() + "\\" + str(a) + " To clipboard. (Transfermode = cut)")
 				fileListBox.delete(a)
-				print("Cut", a)
+			tupleselect = multipleappname
 		except TclError:
 			pass
 
-def paste():
-	global clipBoard
-	global transferMode
-	global cutprocess
+def paste(event):
+	global clipBoard, transferMode, tupleselect
 	try:
 		if curPathText.get() == "System Directory":
 			pass
+		elif clipBoard == []:
+			pass
 		else:
 			for fn in clipBoard:
-				fileName = fn.split("\\")[-1]
-				destination = curPathText.get() + "\\" + fileName
-				if fn == destination:
-					pass
-				else:
+				fileName = fn.split("\\")[-1] ; destination = curPathText.get() + "\\" + fileName
+				try:
 					if(transferMode == "cut"):
-						cutprocess = True
-						shutil.move(fn, destination)
-						notif = "Moving"
+						shutil.move(fn, destination) ; notif = "Moving"
 					elif(transferMode == "copy"):
-						shutil.copyfile(fn, destination)
-						notif = "Copying"
-					print("Paste", notif + " " + fn + " to " + destination)
-			if notif == "Moving":
-				clipBoard = []
-				cutprocess = False
+						shutil.copyfile(fn, destination) ; notif = "Copying"
+					print("Paste: ", notif + " " + fn + " to " + destination) ; reloadFiles() ; select(tupleselect)
+				except Exception as e:
+					continuepaste = messagebox.askyesno("Error","Error to paste '"+fn+"'"+"\n\nError: "+str(e)+"\n\n Do you want to skip that file?")
+					if(continuepaste):
+						continue
+					else:
+						break
+			if transferMode == "cut":
+				clipBoard = [] ; transferMode = "" ; reloadFiles()
 	except Exception as e:
 		if clipBoard == None:
 			pass
 		else:
-			messagebox.showerror(clipBoard, "Error: " + str(e))
-	reloadFiles(0)
+			messagebox.showerror("Error!", "Error: " + str(e))
+	
 
 def check_for_updates():
 	try:
 		import requests
 	except:
-		pass
+		return 'break'
 	try:
 		response = requests.get("https://api.github.com/repositories/398240683/releases/latest")
 		checkversion = response.json()["tag_name"]
 		if version == checkversion:
 			messagebox.showinfo("Info", "You're installed the lastest update!")
 		elif version >= checkversion:
-			messagebox.showwarning("Um...", "That is a ... future version?")
+			pass
 		else:
 			messagebox.showinfo("New Version!", "Your Current version is " + version +" Please update to new version: " + checkversion)
 	except:
 		messagebox.showerror("Error", "Please connect to the network")
 
 def about():
-	messagebox.showinfo("About", "📁 File Manager " + version + "\n Made by LNogDEV.")
+	messagebox.showinfo("About", "File Manager " + version + "\n Made by LNogDEV.")
 
 def menu_bar(root):
 	menuBar = Menu(root)
@@ -281,18 +227,21 @@ def menu_bar(root):
 	helpMenu = Menu(menuBar, tearoff=0)
 	fileMenu.add_command(label="New file", command=lambda: newFile(root))
 	fileMenu.add_command(label="New folder", command=lambda: newFolder(root))
-	fileMenu.add_command(label="Rename", command=lambda: renameSelectedFile(root))		
-	fileMenu.add_command(label="Copy", command=copy)	
-	fileMenu.add_command(label="Cut", command=cut)
-	fileMenu.add_command(label="Paste", command=paste)	
-	fileMenu.add_command(label="Delete", command=deleteSelectedFile)
+	fileMenu.add_command(label="Rename", command=lambda: renameSelectedFile(root), accelerator="F2")		
+	fileMenu.add_command(label="Copy", command=copy, accelerator="Ctrl + C")	
+	fileMenu.add_command(label="Cut", command=cut, accelerator="Ctrl + X")
+	fileMenu.add_command(label="Paste", command=paste(root), accelerator="Ctrl + V")	
+	fileMenu.add_command(label="Delete", command=lambda:deleteSelectedFile(root), accelerator="Del")
 	fileMenu.add_separator()
 	fileMenu.add_command(label="Exit", command=root.quit, accelerator="Alt + F4")
 
 	navMenu.add_command(label="Refresh", command=reloadFiles)
 	navMenu.add_command(label="Up", command=upward)
 	navMenu.add_separator()
-	navMenu.add_command(label="Open", command=opensystem)
+	navMenu.add_command(label="Open", command=lambda:opensystem(root))
+	navMenu.add_separator()
+	navMenu.add_command(label="Select all", command=lambda:select(fileListBox.get_children()), accelerator="Ctrl + A")
+	navMenu.add_command(label="Select none", command=lambda:select(""))
 	
 	viewMenu.add_command(label="Toggle fullscreen", command=toggle_fullscreen, accelerator="F11")
 
@@ -306,191 +255,286 @@ def menu_bar(root):
 	root.config(menu=menuBar)
 
 def toggle_fullscreen(event=None):
-    global state
-    state = not state
-    root.attributes("-fullscreen", state)
+	global state
+	state = not state
+	root.attributes("-fullscreen", state)
 
 def sysdir():
 	errdir = curPathText.get()
-	if errdir == '' or "System Directory" and "maindir":
+	if errdir == '' or "System Directory":
 		try:
-			ChangeText("System Directory")
-			curPathText.set("System Directory")
-			drives = win32api.GetLogicalDriveStrings()
-			drives = drives.split('\000')[:-1]
+			root.title("System Directory - File Manager") ; ChangeText("System Directory") ; curPathText.set("System Directory")
+			dc = win32api.GetLogicalDriveStrings() ; drives = dc.split('\000')[:-1]
 			fileListBox.delete(*fileListBox.get_children())
+			count = 0
 			for d in drives:
-				fileListBox.insert("","end",iid=d ,values = (d, "" , "Local Disk", ""))
+				fileListBox.insert("","end",iid=d ,values = ("🖴 " + d, "" , "Disk", "")) ; count += 1
+			if count == 1 or 0:
+				filecount.configure(text=str(count) + " item")
+			else:
+				filecount.configure(text=str(count) + " items")
 		except:
 			messagebox.showerror("Error", "Cannot collect the file list.")
 	else:
 		messagebox.showerror("Error", "Cannot read the folder.")	
 
-def reloadFiles(fileToSelect = None):
+def select(index):
+	try:
+		fileListBox.selection_set(index)
+	except:
+		pass
+
+def reloadFiles():
+	global transferMode
+	selection = fileListBox.selection()
 	fileListBox.delete(*fileListBox.get_children())
 	try:
-		flist = os.listdir(curPathText.get())
-		added = 0
+		flist = os.listdir(curPathText.get()) ; added = 0
 		for ind, item in enumerate(flist):
-			if(not (fileToSelect is None)):
-				if(fileToSelect == item):
-					selectionInd = added
-			if file_size(item) is not None:
+			if function.file_size(item) is not None:
 				name, extension = os.path.splitext(item)
-				fileListBox.insert("","end",iid= item ,values = (item, time.ctime(os.path.getmtime(item)) , extension + " File" , file_size(item)))
+				fileListBox.insert("","end",iid= item ,values = ("📄 " + item, time.ctime(os.path.getmtime(item)) , extension + " File" , function.file_size(item)))
 			else:
-				fileListBox.insert("","end",iid= item ,values = (item, "", "Directory" ,time.ctime(os.path.getmtime(item))))
+				fileListBox.insert("","end",iid= item ,values = ("📁 " + item, time.ctime(os.path.getmtime(item)), "Directory" ,""))
 			added += 1
+		if added == 1 or 0:
+			filecount.configure(text=str(added) + " item")
+		else:
+			filecount.configure(text=str(added) + " items")
+		if transferMode == "cut":
+			try:
+				fileListBox.delete(*tupleselect)
+			except:
+				pass
 		pl = os.getcwd()
+		dirname = pl.split("\\")[-1]
+		if dirname == "":
+			dirname = pl
 		ChangeText(pl)
+		select(selection)
+		root.title(dirname + "- File Manager")
+		
 	except (FileNotFoundError, UnboundLocalError):
 		sysdir()
 
+def openfunc():
+	try:
+		selection = fileListBox.selection() ; FName = fileListBox.focus()
+		oldpath = os.getcwd() ; curPathText.set(oldpath) ; ChangeText(oldpath)
+		if ":" in FName:
+			curPathText.set(FName) ; os.chdir(FName)
+			ChangeText(FName) ; reloadFiles()
+		else:
+			for f in selection:
+				multiplefilePath = curPathText.get() + "\\" + str(f) ; os.startfile(multiplefilePath)
+	except Exception as e:
+		if e.errno == errno.ENOENT: 
+			messagebox.showerror("An error occurred.", "Invaild file or directory name. Check the spelling and try again.")
+		elif e.errno in [errno.EPERM, errno.EACCES]: 
+			messagebox.showerror("An error occurred.", "You have no permisson to access.")
+		else:
+			print(e)
+
 def opensystem(event):
 	global curPathText
-	oldpath = os.getcwd()
-	fileName = fileListBox.focus()
-	multiplefile = fileListBox.selection()
+	global curdata
+	FName = fileListBox.focus() ; s = fileListBox.selection()
 	try:
-		filePath = curPathText.get() + "\\" + fileName
-		if ":" in fileName:
-			curPathText.set(fileName)
-			os.chdir(fileName)
-			ChangeText(fileName)
-			reloadFiles()
-		else:
+		i = fileListBox.identify_row(event.y)
+		if i in s:
 			try:
-				curPathText.set(filePath)
-				os.chdir(filePath)
-				ChangeText(filePath)
-				reloadFiles()
-			except OSError:
+				FPath = curPathText.get() + "\\" + FName
 				try:
-					curPathText.set(oldpath)
-					ChangeText(oldpath)
-					for f in multiplefile:
-						multiplefilePath = curPathText.get() + "\\" + str(f)
-						os.startfile(multiplefilePath)
-				except OSError:
-					messagebox.showerror("Error", "Unable to enter folder or run file named: " + fileName)
-	except Exception as e:
-		if pll.get() == "System Directory":
-			messagebox.showerror("Unable to get access from '" + fileName + "'", "Error: Please insert a disc into the Drive.")
+					curdata = []
+					sv.set("")
+					curPathText.set(FPath)
+					os.chdir(FPath)
+					ChangeText(FPath)
+					reloadFiles()
+				except: 
+					openfunc()
+			except Exception as e:
+				if e.errno == errno.ENOENT: 
+					messagebox.showerror("An error occurred.", "File Manager can't find '" + str(s) + "'. Check the spelling and try again.")
+				elif e.errno in [errno.EPERM, errno.EACCES]: 
+					messagebox.showerror("An error occurred.", "You have no permisson to access.")
+				else:
+					print(e)
 		else:
-			messagebox.showerror("Unable to get access from '" + fileName + "'", "Error: " + str(e))
-
+			select("")
+	except:
+		openfunc()
+	
 def go(event):
 	try:
 		lastdir = os.getcwd()
 		if "System Directory" == pll.get():
 			sysdir()
+		elif "" == pll.get():
+			ChangeText(lastdir) ; curPathText.set(lastdir)
+		elif "\\" not in pll.get():
+			dir = pll.get() + "\\" ; curPathText.set(dir) ; os.chdir(dir) ; ChangeText(dir) ; reloadFiles()
 		elif "maindir" == pll.get():
 			sysdir()
-		elif "\\" not in pll.get():
-			ChangeText(lastdir)
 		elif "." in pll.get():
-			os.startfile(pll.get)
-			ChangeText(lastdir)
+			os.startfile(pll.get()) ; ChangeText(lastdir)
 		else:
-			curPathText.set(pll.get())
-			os.chdir(pll.get())
-			ChangeText(pll.get())
-			reloadFiles()
-	except (OSError, TypeError):
-		messagebox.showerror("An error occurred.", "File Manager can't find '" + pll.get() + "'. Check the spelling and try again.")
+			curPathText.set(pll.get()) ; os.chdir(pll.get()) ; ChangeText(pll.get()) ; reloadFiles()
+	except Exception as error:
+		if error.errno == errno.ENOENT: 
+			messagebox.showerror("An error occurred.", "File Manager can't find '" + pll.get() + "'. Check the spelling and try again.")
+		elif error.errno in [errno.EPERM, errno.EACCES]: 
+			messagebox.showerror("An error occurred.", "You have no permisson to acess this path.")
+		elif error.args[0] != 123:
+			messagebox.showerror("An error occurred.", "No path named: '" + pll.get() + "'. Check the spelling and try again.")
+		else:
+			print(error)
 		
 def showfileinfo():
-	appName = fileListBox.focus()
-	multipleappname = fileListBox.selection()
-	window = Toplevel(root)
-	window.title(appName)
-	window.geometry("300x250")
-	window.resizable(0,0)
-	curAppdir = curPathText.get() + "\\" + appName
-	apptext = Label(window, text="📁 " + appName + "\n")
-	apptext.pack(side=TOP)
-	typetext = Label(window, text="\nType of file: ")
-	typetext.pack(side=TOP)
-	sizetext = Label(window, text="Size: ")
-	sizetext.pack(side=TOP)
-	separator = Label (window, text=" ——————————————\n")
-	separator.pack(side=TOP)
-	ex = 0
-	name, extension = os.path.splitext(appName)
 	try:
-		try:
-			appsize = file_size(curAppdir)
-			sizetext.configure(text="Size: " + appsize)
-			typetext.configure(text="Type of file: '" + extension + "'")
-		except TypeError:
-			if curPathText.get() == "System Directory":
-				raise OSError("")
-			else:
-				size = get_folder_size(curAppdir)
-				sizetext.configure(text="Size: " + str(size))
-				typetext.configure(text="Type of file: Folder")
-	except (OSError, PermissionError):
-		try:
-			total, used, free = shutil.disk_usage(appName)
+		appname = fileListBox.selection()
+		print(appname)
+		window = Toplevel(root)		
+		window.geometry("300x250")
+		window.resizable(0,0)
+		window.wm_attributes('-toolwindow', 'True')
+		apptext = Label(window, text="...\n") ; typetext = Label(window, text="\nType of file: ...") ; sizetext = Label(window, text="Size: Calculating...")
+		apptext.pack(side=TOP) ; typetext.pack(side=TOP) ; sizetext.pack(side=TOP)
+		separator = Label (window, text=" ——————————————\n").pack(side=TOP)
+		item = 0
+		for fn in appname:
+			item +=1
+			name, extension = os.path.splitext(fn) ; curAppdir = curPathText.get() + "\\" + fn
 
-			sizetext.configure(text="Total: %d GB" % (total // (2**30)) + "\nUsed: %d GB" % (used // (2**30)) + "\nFree: %d GB" % (free // (2**30)))
-			typetext.configure(text="Type: Local Disk")
-		except (OSError, PermissionError, TclError):
-			sizetext.configure(text="Cannot detect the size")
-			typetext.configure(text="")
-	
-	for count in multipleappname:
-		ex += 1
-		if ex >= 1:
-			window.title(str(ex) + " files selected")
-			apptext.configure(text=str(ex) + " files selected")
-			sizetext.configure(text="")
-			typetext.configure(text="Type: Multiple types")
-
-	try:
-		try:
-			if ex >= 1:
-				pass
-			else:
-				ctime = Label(window, text="Created: %s" % time.ctime(os.path.getctime(appName)))
-				ctime.pack(side=TOP)
-				mtime = Label(window, text="Modified: %s" % time.ctime(os.path.getmtime(appName)))
-				mtime.pack(side=TOP)
-				atime = Label(window, text="Accessed: %s" % time.ctime(os.path.getatime(appName)))
-				atime.pack(side=TOP)
-		except PermissionError:
-			pass
-	except FileNotFoundError:
+		if item >= 2:
+			print("Item is more than 2")
+			window.destroy() if curPathText.get() =="System Directory" else 0
+			window.title(str(item) + " files selected");apptext.configure(text=str(item)+" files selected") ; sizetext.configure(text="") ; typetext.configure(text="Type: Multiple types")
+			return 'break'
+		else:
+			window.title(fn)
+			try:
+				if item >=2:
+					raise Exception("Item is more than 2")
+				elif item == 0:
+					raise Exception("Item is 0.")
+				else:
+					print(item)
+					ctime = Label(window, text="Created: "+time.ctime(os.path.getctime(fn)));mtime = Label(window, text="Modified: "+time.ctime(os.path.getmtime(fn))); atime = Label(window, text="Accessed: "+time.ctime(os.path.getatime(fn)))
+					ctime.pack(side=TOP) ; mtime.pack(side=TOP) ; atime.pack(side=TOP)
+				
+			except:
+				return 'break'
+			try:
+				try:
+					apptext.configure(text=fn + "\n")
+					typetext.configure(text="Type of file: '" + extension + "'")
+					appsize = function.file_size(curAppdir)
+					sizetext.configure(text="Size: " + appsize)
+				except TypeError:
+					if curPathText.get() == "System Directory":
+						raise OSError("")
+					else:
+						typetext.configure(text="Type of file: Folder")
+						size = function.get_folder_size(curAppdir)
+						sizetext.configure(text="Size: " + str(size))
+			except (OSError, PermissionError):
+				if curPathText.get() == "System Directory":
+					try:
+						total, used, free = shutil.disk_usage(fn)
+						sizetext.configure(text="Total: %d GB" % (total // (2**30)) + "\nUsed: %d GB" % (used // (2**30)) + "\nFree: %d GB" % (free // (2**30)))
+						typetext.configure(text="Type: Disk")
+					except:
+						sizetext.configure(text="Cannot detect the size")
+						typetext.configure(text="")
+				else:
+					sizetext.configure(text="Cannot detect the size")
+					typetext.configure(text="")
+	except:
 		pass
+def searchfunc(event):
+	global curdata
+	if curdata == []:
+		curdata = fileListBox.get_children()
+	else:
+		pass
+	value = sv.get()
+	fileListBox.delete(*fileListBox.get_children())
+	
+	if value == '':
+		reloadFiles()
+		curdata = []
+	else:
+		filecount.configure(text="Search") ; data = [] ; root.title("Search Results")
+		for item in curdata:
+			if value in item.lower():
+				data.append(item)
+			else:
+				pass
+		for item in data:
+			try:
+				if curPathText.get() == "System Directory":
+					fileListBox.insert("","end",iid=item ,values = ("🖴 " + item, "" , "Disk", ""))
+				elif function.file_size(item) is not None:
+					name, extension = os.path.splitext(item)
+					fileListBox.insert("","end",iid= item ,values = ("📄 " + item, "" , extension + " File" , function.file_size(item)))
+				else:
+					fileListBox.insert("","end",iid= item ,values = ("📁 " + item, time.ctime(os.path.getmtime(item)), "Directory" ,""))
+			except Exception as e:
+				print("\a")
+				print(e)
+
+ChangeText = lambda text:pll.set(text)
+#main file manager window
+file_mgr = root
+
+temppath = tempfile.gettempdir()
+icon = (b'\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x08\x00h\x05\x00\x00'
+		b'\x16\x00\x00\x00(\x00\x00\x00\x10\x00\x00\x00 \x00\x00\x00\x01\x00'
+		b'\x08\x00\x00\x00\x00\x00@\x05\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+		b'\x00\x01\x00\x00\x00\x01') + b'\x00'*1282 + b'\xff'*64
+		
+
+ICON_PATH = temppath + "\\icon.png"
+try:
+	f = open(ICON_PATH,"w+") ; f2 = open(ICON_PATH, "wb")
+	f.write("") ; f2.write(icon)
+	f.close() ; f2.close()
+except:
+	pass
+
+root.after(2000, reloadFiles)
+
+file_mgr.title("File Manager")
+file_mgr.geometry("800x500")
+file_mgr.minsize(700, 400)
+
+try:
+	root.iconbitmap(default=ICON_PATH)
+except:
+	pass
+
+root.bind("<F11>", toggle_fullscreen)
 
 frame1=Frame(root)
 frame1.pack(side=TOP,fill=X)
 
-file_mgr = root
-root.after(20000, reloadFiles)
-
-file_mgr.title("File Manager")
-file_mgr.geometry("800x500")
-
-root.bind("<F11>", toggle_fullscreen)
-
 toolbar=ttk.Frame(frame1)
 toolbar.pack(side=TOP,fill=X)
-upbtn = ttk.Button(frame1, text="↑", command=upward, width=5)
+upbtn = ttk.Button(frame1, text="↑", command=upward, width=4)
+upbtntip = function.CreateToolTip(upbtn, "Up")
 upbtn.pack(side=LEFT,padx=1)
-refreshbtn = ttk.Button(frame1, text="↻", command=reloadFiles, width=5)
+refreshbtn = ttk.Button(frame1, text="↻", command=reloadFiles, width=4)
+refreshbtntip = function.CreateToolTip(refreshbtn, "Refresh")
 refreshbtn.pack(side=LEFT,padx=1)
-newfolderbtn = ttk.Button(frame1, text="+📁", command=lambda: newFolder(root), width=5)
-newfolderbtn.pack(side=RIGHT, padx=1)
-newfilebtn = ttk.Button(frame1, text="+File", command=lambda: newFile(root), width=5)
-newfilebtn.pack(side=RIGHT, padx=1)
-gobtn = ttk.Button(frame1, text="↩", command=lambda:go(root), width=5)
+sv = StringVar()
+search = ttk.Entry(frame1,width=25, textvariable = sv)
+search.pack(side=RIGHT, padx=2)
+search.bind('<KeyRelease>', searchfunc)
+gobtn = ttk.Button(frame1, text="↩", command=lambda:go(root), width=4)
+gobtntp = function.CreateToolTip(gobtn, "Go to the path you typed in the adrress bar")
 gobtn.pack(side=RIGHT, padx=4)
 
-def ChangeText(text):
-	pll.set(text)
-
-pll = StringVar()
 path = ttk.Entry(frame1,  textvariable = pll)
 path.pack(side=LEFT, fill=BOTH, expand=1)
 
@@ -498,6 +542,12 @@ path.bind("<Return>", go)
 
 m = PanedWindow(file_mgr,orient="horizontal")
 m.pack(fill=BOTH ,expand=1)
+
+frame2 = Frame(root)
+frame2.pack(side=TOP,fill=X)
+
+filecount = Label(frame2, text="Calculating...")
+filecount.pack(side = LEFT)
 
 fileListBox = ttk.Treeview(m, name='fileListBox')
 fileListBox['columns']=('name', 'datem', 'type', 'size')
@@ -513,11 +563,6 @@ fileListBox.heading('datem', text='Date modified')
 fileListBox.heading('type', text='Type')
 fileListBox.heading('size', text='Size')
 
-fileListBox.bind('<<ListboxSelect>>')
-fileListBox.bind("<Double-Button-1>", opensystem)
-fileListBox.bind('<Control-Key-C>', copy)
-fileListBox.bind('<Control-Key-V>', paste)
-
 scrollbar = Scrollbar(m)
 scrollbar.pack(side = RIGHT, fill = BOTH)
 
@@ -525,28 +570,65 @@ fileListBox.config(yscrollcommand = scrollbar.set)
 scrollbar.config(command = fileListBox.yview)
 
 rightclick = Menu(root, tearoff = 0)
-rightclick.add_command(label="Open", command=lambda:opensystem(root))
-rightclick.add_command(label ="Cut", command=cut)
-rightclick.add_command(label ="Copy", command=copy)
-rightclick.add_command(label ="Paste", command=paste)
+rightclick.add_command(label="Open", command=lambda:opensystem(root), font=('Segoe UI', 9, 'bold'))
+rightclick.add_command(label ="Cut", command=cut(root))
+rightclick.add_command(label ="Copy", command=copy(root))
 rightclick.add_command(label ="Rename", command=lambda:renameSelectedFile(root))
-rightclick.add_command(label="Delete", command=deleteSelectedFile)
+rightclick.add_command(label="Delete", command=lambda:deleteSelectedFile(root))
 rightclick.add_separator()
-rightclick.add_command(label ="Refresh", command=reloadFiles)
-rightclick.add_command(label="Info", command=showfileinfo)
-def do_popup(event):
-	try:
-		rightclick.tk_popup(event.x_root, event.y_root)
-	finally:
-		rightclick.grab_release()
+rightclick.add_command(label="Info", command=lambda:Thread(target=showfileinfo).start())
 
-fileListBox.bind("<Button-3>", do_popup)
+rc2 = Menu(root, tearoff= 0) #right click when the selection is nothing
+rc2new = Menu(root, tearoff=0) ; rc2new.add_command(label="New folder", command=lambda:newFolder(root)), rc2new.add_command(label="New file", command=lambda:newFile(root))
+rc2.add_command(label ="Paste", command=paste(root)) ; rc2.add_separator() ; rc2.add_cascade(label="New", menu=rc2new)
+rc2.add_command(label ="Refresh", command=reloadFiles)
+
+rc3 = Menu(root, tearoff=0) #System Directory right click
+rc3.add_command(label="Open", command=lambda:opensystem(root), font=('Segoe UI', 9, 'bold')) ; rc3.add_separator() ; rc3.add_command(label="Info", command=showfileinfo)
+
+def checkselect(event):
+	try:
+		count = 0
+		for c in fileListBox.selection():
+			count +=1
+		if count >=2:
+			return 'break'
+		else:
+			select(fileListBox.identify_row(event.y))
+	except Exception as e:
+		print(e)
+
+def do_popup(event):
+	checkclipboard() ; checkselect(event)
+	if fileListBox.selection() == ():
+		try:
+			rc2.tk_popup(event.x_root, event.y_root)
+		finally:
+			rc2.grab_release()
+	elif curPathText.get() == "System Directory":
+		try:
+			rc3.tk_popup(event.x_root, event.y_root)
+		finally:
+			rc3.grab_release()
+	else:
+		try:
+			rightclick.tk_popup(event.x_root, event.y_root)
+		finally:
+			rightclick.grab_release()
+
+def checkclipboard():
+	if clipBoard == []:
+		rc2.entryconfig("Paste", state="disabled")
+	else:
+		rc2.entryconfig("Paste", state="normal")
+
+fileListBox.bind("<Button-3>", do_popup) ; fileListBox.bind('<<ListboxSelect>>') ; fileListBox.bind("<Double-Button-1>", opensystem)
+fileListBox.bind("<Delete>", deleteSelectedFile) ; fileListBox.bind("<Control-c>", copy) ; fileListBox.bind("<Control-x>", cut)
+root.bind("<F2>", renameSelectedFile) ; root.bind("<Control-v>", paste)
 
 reloadFiles()
 
-m.add(fileListBox)
-
-menu_bar(file_mgr)
+m.add(fileListBox) ; menu_bar(file_mgr)
 
 if(__name__ == "__main__"):
 	root.mainloop()
