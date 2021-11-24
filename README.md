@@ -8,7 +8,7 @@ This application is made in Python with tkinter module. ONLY for Windows.
 <p>-win32api (pip install win32api)</p>
 
 # Features:
-<p>something here idk</p>
+<p></p>
 
 
 
