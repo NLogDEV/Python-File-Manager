@@ -1,7 +1,7 @@
 # Python File Manager
 This application is made in Python with tkinter module. Works on Windows and Linux.
 
-![alt text](https://raw.githubusercontent.com/NLogDEV/Python-File-Manager/main/demo.PNG)
+![alt text](https://storage.nlogdev.repl.co/uploads/demo.PNG)
 <p></p>
 
 # This program requires:
